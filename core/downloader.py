@@ -4,8 +4,8 @@ from typing import Literal, Any, Optional, Awaitable
 
 from boosty.api import download_file
 from boosty.wrappers.media_pool import MediaPool
+from core.completed_cache import CompletedCache
 from core.defs import ContentType
-from core.download_state import DownloadState
 from core.logger import logger
 from core.meta import write_video_metadata
 from core.utils import create_dir_if_not_exists
@@ -24,6 +24,7 @@ class Downloader:
         self.media_pool = media_pool
         self.base_path = base_path
         self.cache_path = cache_path
+        self.completed_cache = CompletedCache(cache_path)
         self._max_parallel_downloads = max_parallel_downloads
         self._save_meta = save_meta
         self._semaphore = asyncio.Semaphore(max_parallel_downloads)
@@ -33,58 +34,68 @@ class Downloader:
             file_url: str,
             path: Path,
             meta_writer: Optional[Awaitable] = None
-    ) -> bool:
+    ) -> tuple[bool, int]:
         logger.debug(f"call download_file func for \"{path.name}\"")
-        result = await download_file(file_url, path)
-        if self._save_meta and result and meta_writer:
+        success, total_size = await download_file(file_url, path)
+        if self._save_meta and success and meta_writer:
             logger.info(f"writing metadata to file \"{path.name}\"")
             await meta_writer
-        return result
+        return success, total_size
 
     async def _get_file_and_raise_stat(
             self,
             url: str,
             path_file: Path,
             _t: Literal["p", "v", "a", "f"],
+            file_id: str,
+            post_id: str,
+            expected_size: int = 0,
             metadata: dict[str, Any] | None = None
     ):
+        if self.completed_cache.check(post_id, file_id):
+            logger.info(f"File {file_id} from post {post_id} already downloaded (found in cache), skipping.")
+            if _t == "p": stat_tracker.add_passed_photo()
+            if _t == "v": stat_tracker.add_passed_video()
+            if _t == "a": stat_tracker.add_passed_audio()
+            if _t == "f": stat_tracker.add_passed_file()
+            return
+
         match _t:
             case "p":
-                passed = stat_tracker.add_passed_photo
-                downloaded = stat_tracker.add_downloaded_photo
-                error = stat_tracker.add_error_photo
-                meta_writer = None
+                passed, downloaded, error, meta_writer = stat_tracker.add_passed_photo, stat_tracker.add_downloaded_photo, stat_tracker.add_error_photo, None
             case "v":
-                passed = stat_tracker.add_passed_video
-                downloaded = stat_tracker.add_downloaded_video
-                error = stat_tracker.add_error_video
-                meta_writer = write_video_metadata(path_file, metadata)
+                passed, downloaded, error, meta_writer = stat_tracker.add_passed_video, stat_tracker.add_downloaded_video, stat_tracker.add_error_video, write_video_metadata(path_file, metadata)
             case "a":
-                passed = stat_tracker.add_passed_audio
-                downloaded = stat_tracker.add_downloaded_audio
-                error = stat_tracker.add_error_audio
-                meta_writer = None
+                passed, downloaded, error, meta_writer = stat_tracker.add_passed_audio, stat_tracker.add_downloaded_audio, stat_tracker.add_error_audio, None
             case "f":
-                passed = stat_tracker.add_passed_file
-                downloaded = stat_tracker.add_downloaded_file
-                error = stat_tracker.add_error_file
-                meta_writer = None
+                passed, downloaded, error, meta_writer = stat_tracker.add_passed_file, stat_tracker.add_downloaded_file, stat_tracker.add_error_file, None
             case _:
                 logger.warning(f"Unknown _t: {_t}")
                 return
 
         async with self._semaphore:
             size_before = path_file.stat().st_size if path_file.is_file() else 0
-            download_state = DownloadState(self.cache_path / f"{path_file.name}.dstate")
-            await download_state.create(url, path_file)
             try:
-                if await self._download_file(url, path_file, meta_writer):
-                    size_after = path_file.stat().st_size if path_file.is_file() else 0
+                success, server_total_size = await self._download_file(url, path_file, meta_writer)
+                if not success:
+                    error()
+                    return
+                
+                size_after = path_file.stat().st_size if path_file.is_file() else 0
+                
+                final_expected_size = expected_size if expected_size > 0 else server_total_size
+
+                if final_expected_size > 0 and size_after == final_expected_size:
                     if size_after > size_before:
                         downloaded()
                     else:
                         passed()
-                    await download_state.remove()
+                    self.completed_cache.add(post_id, file_id)
+                else:
+                    logger.warning(f"File {path_file.name} is incomplete. "
+                                 f"Expected {final_expected_size}, but got {size_after}. Will resume on next run.")
+                    passed()
+
             except Exception as e:
                 logger.warning(f"err download {url}", exc_info=e)
                 error()
@@ -108,7 +119,7 @@ class Downloader:
         images = self.media_pool.get_images()
         for image in images:
             path = photo_path / (image["id"] + ".jpg")
-            tasks.append(self._get_file_and_raise_stat(image["url"], path, "p"))
+            tasks.append(self._get_file_and_raise_stat(image["url"], path, "p", image["id"], image["post_id"]))
         await asyncio.gather(*tasks)
 
     async def download_videos(self):
@@ -123,7 +134,7 @@ class Downloader:
             else:
                 post_name = video["id"]
             path = video_path / (post_name + ".mp4")
-            tasks.append(self._get_file_and_raise_stat(video["url"], path, "v", meta))
+            tasks.append(self._get_file_and_raise_stat(video["url"], path, "v", video["id"], video["post_id"], 0, meta))
         await asyncio.gather(*tasks)
 
     async def download_audios(self):
@@ -133,7 +144,7 @@ class Downloader:
         audios = self.media_pool.get_audios()
         for audio in audios:
             path = audio_path / (audio["id"] + ".mp3")
-            tasks.append(self._get_file_and_raise_stat(audio["url"], path, "a"))
+            tasks.append(self._get_file_and_raise_stat(audio["url"], path, "a", audio["id"], audio["post_id"], audio["size_amount"]))
         await asyncio.gather(*tasks)
 
     async def download_files(self):
@@ -143,5 +154,5 @@ class Downloader:
         files = self.media_pool.get_files()
         for file in files:
             path = files_path / file["title"]
-            tasks.append(self._get_file_and_raise_stat(file["url"], path, "f"))
+            tasks.append(self._get_file_and_raise_stat(file["url"], path, "f", file["id"], file["post_id"], file["size_amount"]))
         await asyncio.gather(*tasks)

@@ -16,7 +16,7 @@ class MediaPool:
         self.__audios = {}
         self.__files = {}
 
-    def add_image(self, _id: str, url: str, width: int, height: int):
+    def add_image(self, _id: str, post_id: str, url: str, width: int, height: int):
         if not conf.need_load_photo:
             return
         total_weight = width * height
@@ -26,10 +26,11 @@ class MediaPool:
                 return
         self.__images[_id] = {
             "total_weight": total_weight,
-            "url": url
+            "url": url,
+            "post_id": post_id,
         }
 
-    def add_video(self, _id: str, url: str, size_amount: int, meta: dict[str, Any]):
+    def add_video(self, _id: str, post_id: str, url: str, size_amount: int, meta: dict[str, Any]):
         if not conf.need_load_video:
             return
         if size_amount > conf.max_video_file_size:
@@ -42,9 +43,10 @@ class MediaPool:
             "url": url,
             "size_amount": size_amount,
             "meta": meta,
+            "post_id": post_id,
         }
 
-    def add_audio(self, _id: str, url: str, size_amount: int):
+    def add_audio(self, _id: str, post_id: str, url: str, size_amount: int):
         if not conf.need_load_audio:
             return
         current = self.__audios.get(_id)
@@ -53,10 +55,11 @@ class MediaPool:
                 return
         self.__audios[_id] = {
             "url": url,
-            "size_amount": size_amount
+            "size_amount": size_amount,
+            "post_id": post_id,
         }
 
-    def add_file(self, _id: str, url: str, size_amount: int, title: str):
+    def add_file(self, _id: str, post_id: str, url: str, size_amount: int, title: str):
         if not conf.need_load_files:
             return
         current = self.__files.get(_id)
@@ -65,20 +68,22 @@ class MediaPool:
         self.__files[_id] = {
             "url": url,
             "size_amount": size_amount,
-            "title": title
+            "title": title,
+            "post_id": post_id,
         }
 
     def get_images(self) -> List[Dict]:
         """
         Get all images
-        :return: [{"id": 1, "url": "https://s3.com/1"}, ...]
+        :return: [{"id": "1", "post_id": "post1", "url": "https://s3.com/1"}, ...]
         """
         res = []
-        for img_id in self.__images.keys():
+        for img_id, img_data in self.__images.items():
             res.append(
                 {
                     "id": img_id,
-                    "url": self.__images[img_id]["url"]
+                    "url": img_data["url"],
+                    "post_id": img_data["post_id"],
                 }
             )
         return res
@@ -86,15 +91,17 @@ class MediaPool:
     def get_videos(self) -> List[Dict]:
         """
         Get all videos
-        :return: [{"id": 1, "url": "https://s3.com/1", "meta": {}}, ...]
+        :return: [{"id": "1", "post_id": "post1", "url": "https://s3.com/1", "meta": {}, "size_amount": 123}, ...]
         """
         res = []
-        for video_id in self.__videos.keys():
+        for video_id, video_data in self.__videos.items():
             res.append(
                 {
                     "id": video_id,
-                    "url": self.__videos[video_id]["url"],
-                    "meta": self.__videos[video_id]["meta"],
+                    "url": video_data["url"],
+                    "meta": video_data["meta"],
+                    "post_id": video_data["post_id"],
+                    "size_amount": video_data["size_amount"],
                 }
             )
         return res
@@ -102,14 +109,16 @@ class MediaPool:
     def get_audios(self) -> List[Dict]:
         """
         Get all audios
-        :return: [{"id": 1, "url": "https://s3.com/1"}, ...]
+        :return: [{"id": "1", "post_id": "post1", "url": "https://s3.com/1", "size_amount": 123}, ...]
         """
         res = []
-        for audio_id in self.__audios.keys():
+        for audio_id, audio_data in self.__audios.items():
             res.append(
                 {
                     "id": audio_id,
-                    "url": self.__audios[audio_id]["url"]
+                    "url": audio_data["url"],
+                    "post_id": audio_data["post_id"],
+                    "size_amount": audio_data["size_amount"],
                 }
             )
         return res
@@ -117,16 +126,17 @@ class MediaPool:
     def get_files(self) -> List[Dict]:
         """
         Get all files
-        :return: [{"id": 1, "url": "https://s3.com/1", "title": "1.pdf"}, ...]
+        :return: [{"id": "1", "post_id": "post1", "url": "https://s3.com/1", "title": "1.pdf", "size_amount": 123}, ...]
         """
         res = []
-        for file_id in self.__files.keys():
-            file = self.__files[file_id]
+        for file_id, file_data in self.__files.items():
             res.append(
                 {
                     "id": file_id,
-                    "url": file["url"],
-                    "title": file["title"]
+                    "url": file_data["url"],
+                    "title": file_data["title"],
+                    "post_id": file_data["post_id"],
+                    "size_amount": file_data["size_amount"],
                 }
             )
         return res

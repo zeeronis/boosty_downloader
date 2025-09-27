@@ -84,10 +84,12 @@ async def get_all_media_by_type(
             media_posts = resp["data"]["mediaPosts"]
             for post in media_posts:
                 if post["post"]["hasAccess"]:
+                    post_id = post["post"]["id"]
                     for media in post["media"]:
                         if content_type == ContentType.IMAGE:
                             media_pool.add_image(
                                 _id=media["id"],
+                                post_id=post_id,
                                 url=media["url"],
                                 width=media["width"],
                                 height=media["height"],
@@ -95,6 +97,7 @@ async def get_all_media_by_type(
                         elif content_type == ContentType.AUDIO:
                             media_pool.add_audio(
                                 _id=media["id"],
+                                post_id=post_id,
                                 url=media["url"] + post["post"].get("signedQuery", ""),
                                 size_amount=media["size"]
                             )
@@ -103,6 +106,7 @@ async def get_all_media_by_type(
                                 if url["type"] in VIDEO_QUALITY.keys() and url["url"] != "":
                                     media_pool.add_video(
                                         _id=media["id"],
+                                        post_id=post_id,
                                         url=url["url"],
                                         size_amount=VIDEO_QUALITY[url["type"]],
                                         meta=parse_metadata(post["post"], media),
@@ -111,10 +115,10 @@ async def get_all_media_by_type(
     return True, None
 
 
-async def download_file(url: str, path: Path) -> bool:
+async def download_file(url: str, path: Path) -> tuple[bool, int]:
     if url == "":
         logger.warning(f"Empty URL for {path} file, skip")
-        raise Exception("Empty url")
+        return False, 0
     try:
         file_name = path.name
         async with ClientSession() as session:
@@ -146,7 +150,15 @@ async def download_file(url: str, path: Path) -> bool:
                     if response.status == 206:  # Partial Content
                         logger.info(f"Server supports resume for \"{file_name}\". Continuing download.")
                         file_mode = "ab"
-                        total_length = initial_bytes + (response.content_length or 0)
+                        content_range = response.headers.get("Content-Range")
+                        if content_range:
+                            try:
+                                total_length = int(content_range.split("/")[-1])
+                            except (ValueError, IndexError):
+                                logger.warning(f"Could not parse Content-Range header: {content_range}")
+                                total_length = initial_bytes + (response.content_length or 0)
+                        else:
+                            total_length = initial_bytes + (response.content_length or 0)
                     elif response.status == 200:  # OK
                         if initial_bytes > 0:
                             logger.warning(f"Server does not support resume for \"{file_name}\". Restarting download.")
@@ -155,7 +167,7 @@ async def download_file(url: str, path: Path) -> bool:
                         total_length = response.content_length or 0
                     elif response.status == 416:  # Range Not Satisfiable
                         logger.info(f"File \"{file_name}\" is already fully downloaded.")
-                        return True
+                        return True, initial_bytes
                     else:
                         logger.warning(f"non-2xx status code ({response.status}) for file {url}, try {i + 2}")
                         await asyncio.sleep(0.5)
@@ -188,7 +200,7 @@ async def download_file(url: str, path: Path) -> bool:
                                                 f"(ela: {int(elapsed) // 60}m; eta: {int(eta_seconds) // 60}m; {round(speed_mbps, 2)} Mb/s)")
                                 else:
                                     logger.info(f"downloading \"{file_name}\" [{download_percent}%] ...")
-                    return True # Success
+                    return True, total_length
                 except Exception as e:
                     logger.warning(f"failed to download or write file {path}: {e}, trying again")
                     await asyncio.sleep(0.5)
@@ -196,18 +208,18 @@ async def download_file(url: str, path: Path) -> bool:
 
             # after loop
             logger.error(f"actually failed download file {url}")
-            raise Exception(f"actually failed download file {url}")
+            return False, 0
 
     except TimeoutError:
         lg = "[TimedOut] Failed download media due to timeout. " \
              "If file is large, try to set a higher value for the download_timeout parameter in config"
         logger.error(lg)
         stat_tracker.add_download_error(url)
-        raise Exception(lg)
+        return False, 0
     except Exception as e:
         logger.error(f"[{e.__class__.__name__}] Failed download media: {e}")
         stat_tracker.add_download_error(url)
-        raise e
+        return False, 0
 
 
 async def get_profile_stat(creator_name: str):
@@ -298,6 +310,7 @@ async def get_all_posts(
                                 if url["type"] in VIDEO_QUALITY.keys() and url["url"] != "":
                                     new_post.media_pool.add_video(
                                         _id=media["id"],
+                                        post_id=new_post.id,
                                         url=url["url"],
                                         size_amount=VIDEO_QUALITY[url["type"]],
                                         meta=parse_metadata(post, media),
@@ -305,6 +318,7 @@ async def get_all_posts(
                         elif media["type"] == MediaType.IMAGE.value:
                             new_post.media_pool.add_image(
                                 _id=media["id"],
+                                post_id=new_post.id,
                                 url=media["url"],
                                 width=media["width"],
                                 height=media["height"]
@@ -312,12 +326,14 @@ async def get_all_posts(
                         elif media["type"] == MediaType.AUDIO.value:
                             new_post.media_pool.add_audio(
                                 _id=media["id"],
+                                post_id=new_post.id,
                                 url=media["url"] + signed_query,
                                 size_amount=media["size"],
                             )
                         elif media["type"] == MediaType.FILE.value:
                             new_post.media_pool.add_file(
                                 _id=media["id"],
+                                post_id=new_post.id,
                                 url=media["url"] + signed_query,
                                 size_amount=media["size"],
                                 title=media["title"]
@@ -396,6 +412,7 @@ async def get_post_by_id(
                             if url["type"] in VIDEO_QUALITY.keys() and url["url"] != "":
                                 new_post.media_pool.add_video(
                                     _id=media["id"],
+                                    post_id=new_post.id,
                                     url=url["url"],
                                     size_amount=VIDEO_QUALITY[url["type"]],
                                     meta=parse_metadata(resp, media),
@@ -403,6 +420,7 @@ async def get_post_by_id(
                     elif media["type"] == MediaType.IMAGE.value:
                         new_post.media_pool.add_image(
                             _id=media["id"],
+                            post_id=new_post.id,
                             url=media["url"],
                             width=media["width"],
                             height=media["height"]
@@ -410,12 +428,14 @@ async def get_post_by_id(
                     elif media["type"] == MediaType.AUDIO.value:
                         new_post.media_pool.add_audio(
                             _id=media["id"],
+                            post_id=new_post.id,
                             url=media["url"] + signed_query,
                             size_amount=media["size"],
                         )
                     elif media["type"] == MediaType.FILE.value:
                         new_post.media_pool.add_file(
                             _id=media["id"],
+                            post_id=new_post.id,
                             url=media["url"] + signed_query,
                             size_amount=media["size"],
                             title=media["title"]

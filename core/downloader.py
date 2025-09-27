@@ -84,13 +84,10 @@ class Downloader:
                         downloaded()
                     else:
                         passed()
-                else:
-                    passed()
+                    await download_state.remove()
             except Exception as e:
                 logger.warning(f"err download {url}", exc_info=e)
                 error()
-            finally:
-                await download_state.remove()
 
     async def download_by_content_type(self, content_type: ContentType):
         match content_type:

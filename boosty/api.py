@@ -65,9 +65,10 @@ async def get_all_media_by_type(
     use_cookie: bool,
     offset: Optional[str] = None
 ) -> tuple[Any, Any]:
-    logger.info(f"get all {content_type.value} for {creator_name}")
+    load_posts_chunk_count = 10
+    logger.info(f"get next {load_posts_chunk_count} media posts by type \"{content_type.value}\" for \"{creator_name}\". Offset: {offset}")
     async with ClientSession() as session:
-        for i in range(10):
+        for i in range(load_posts_chunk_count):
             resp = await get_media_list(
                 session=session,
                 creator_name=creator_name,
@@ -76,7 +77,7 @@ async def get_all_media_by_type(
                 offset=offset
             )
             if not resp:
-                logger.warning(f"get all {content_type.value} for {creator_name} failed due unknown reason, rerun...")
+                logger.warning(f"get next {load_posts_chunk_count} media posts by type \"{content_type.value}\" for \"{creator_name}\". Offset: {offset}. Failed due unknown reason, rerun...")
                 await asyncio.sleep(0.3)
                 continue
             extra = resp["extra"]

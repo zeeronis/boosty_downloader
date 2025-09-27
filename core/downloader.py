@@ -32,14 +32,10 @@ class Downloader:
     async def _download_file(
             self,
             file_url: str,
-            path: Path,
-            meta_writer: Optional[Awaitable] = None
+            path: Path
     ) -> tuple[bool, int]:
         logger.debug(f"call download_file func for \"{path.name}\"")
         success, total_size = await download_file(file_url, path)
-        if self._save_meta and success and meta_writer:
-            logger.info(f"writing metadata to file \"{path.name}\"")
-            await meta_writer
         return success, total_size
 
     async def _get_file_and_raise_stat(
@@ -64,7 +60,7 @@ class Downloader:
             case "p":
                 passed, downloaded, error, meta_writer = stat_tracker.add_passed_photo, stat_tracker.add_downloaded_photo, stat_tracker.add_error_photo, None
             case "v":
-                passed, downloaded, error, meta_writer = stat_tracker.add_passed_video, stat_tracker.add_downloaded_video, stat_tracker.add_error_video, write_video_metadata(path_file, metadata)
+                passed, downloaded, error, meta_writer = stat_tracker.add_passed_video, stat_tracker.add_downloaded_video, stat_tracker.add_error_video, write_video_metadata
             case "a":
                 passed, downloaded, error, meta_writer = stat_tracker.add_passed_audio, stat_tracker.add_downloaded_audio, stat_tracker.add_error_audio, None
             case "f":
@@ -76,16 +72,18 @@ class Downloader:
         async with self._semaphore:
             size_before = path_file.stat().st_size if path_file.is_file() else 0
             try:
-                success, server_total_size = await self._download_file(url, path_file, meta_writer)
+                success, server_total_size = await self._download_file(url, path_file)
                 if not success:
                     error()
                     return
                 
-                size_after = path_file.stat().st_size if path_file.is_file() else 0
-                
+                size_after = path_file.stat().st_size
                 final_expected_size = expected_size if expected_size > 0 else server_total_size
 
-                if final_expected_size > 0 and size_after == final_expected_size:
+                if final_expected_size > 0 and size_after >= final_expected_size:
+                    if self._save_meta and meta_writer:
+                        await meta_writer(path_file, metadata)
+                    
                     if size_after > size_before:
                         downloaded()
                     else:
@@ -134,7 +132,7 @@ class Downloader:
             else:
                 post_name = video["id"]
             path = video_path / (post_name + ".mp4")
-            tasks.append(self._get_file_and_raise_stat(video["url"], path, "v", video["id"], video["post_id"], 0, meta))
+            tasks.append(self._get_file_and_raise_stat(video["url"], path, "v", video["id"], video["post_id"], metadata=meta))
         await asyncio.gather(*tasks)
 
     async def download_audios(self):

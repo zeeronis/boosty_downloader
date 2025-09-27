@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from core.logger import logger
 from mutagen.mp4 import MP4, MP4Cover
 import aiohttp
@@ -26,26 +26,29 @@ async def write_video_metadata(file_path: Path, metadata: dict[str, Any] | None)
     if not metadata:
         return
 
+    cover_data: Optional[bytes] = None
+    if "cover" in metadata:
+        try:
+            async with aiohttp.ClientSession() as conn:
+                resp = await conn.get(metadata["cover"])
+                resp.raise_for_status()
+                cover_data = await resp.read()
+        except aiohttp.ClientError as e:
+            logger.warning(f"Could not download cover image for {file_path.name}. Reason: {e}")
+
     try:
-        # Open the MP4 file
         video = MP4(file_path)
 
-        # Common metadata tags for MP4 files
         if "title" in metadata:
             video["\xa9nam"] = metadata["title"]
 
         if "description" in metadata:
             video["desc"] = metadata["description"]
+        
+        if cover_data:
+            video['covr'] = [MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)]
 
-        # Add cover art if provided
-        if "cover" in metadata:
-            async with aiohttp.ClientSession() as conn:
-                resp = await conn.get(metadata["cover"])
-                video['covr'] = [MP4Cover(await resp.read(), imageformat=MP4Cover.FORMAT_JPEG)]
-
-        # Save the changes
         video.save()
 
     except Exception as e:
-        logger.exception("Error writing metadata", exc_info=e)
-
+        logger.exception(f"Error writing metadata to {file_path.name}", exc_info=e)

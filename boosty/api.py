@@ -310,7 +310,7 @@ async def get_all_posts(
                                 if url["type"] in VIDEO_QUALITY.keys() and url["url"] != "":
                                     new_post.media_pool.add_video(
                                         _id=media["id"],
-                                        post_id=new_post.id,
+                                        post_id=post["id"],
                                         url=url["url"],
                                         size_amount=VIDEO_QUALITY[url["type"]],
                                         meta=parse_metadata(post, media),
@@ -318,7 +318,7 @@ async def get_all_posts(
                         elif media["type"] == MediaType.IMAGE.value:
                             new_post.media_pool.add_image(
                                 _id=media["id"],
-                                post_id=new_post.id,
+                                post_id=post["id"],
                                 url=media["url"],
                                 width=media["width"],
                                 height=media["height"]
@@ -326,14 +326,14 @@ async def get_all_posts(
                         elif media["type"] == MediaType.AUDIO.value:
                             new_post.media_pool.add_audio(
                                 _id=media["id"],
-                                post_id=new_post.id,
+                                post_id=post["id"],
                                 url=media["url"] + signed_query,
                                 size_amount=media["size"],
                             )
                         elif media["type"] == MediaType.FILE.value:
                             new_post.media_pool.add_file(
                                 _id=media["id"],
-                                post_id=new_post.id,
+                                post_id=post["id"],
                                 url=media["url"] + signed_query,
                                 size_amount=media["size"],
                                 title=media["title"]
@@ -412,7 +412,7 @@ async def get_post_by_id(
                             if url["type"] in VIDEO_QUALITY.keys() and url["url"] != "":
                                 new_post.media_pool.add_video(
                                     _id=media["id"],
-                                    post_id=new_post.id,
+                                    post_id=resp["id"],
                                     url=url["url"],
                                     size_amount=VIDEO_QUALITY[url["type"]],
                                     meta=parse_metadata(resp, media),
@@ -420,7 +420,7 @@ async def get_post_by_id(
                     elif media["type"] == MediaType.IMAGE.value:
                         new_post.media_pool.add_image(
                             _id=media["id"],
-                            post_id=new_post.id,
+                            post_id=resp["id"],
                             url=media["url"],
                             width=media["width"],
                             height=media["height"]
@@ -428,14 +428,14 @@ async def get_post_by_id(
                     elif media["type"] == MediaType.AUDIO.value:
                         new_post.media_pool.add_audio(
                             _id=media["id"],
-                            post_id=new_post.id,
+                            post_id=resp["id"],
                             url=media["url"] + signed_query,
                             size_amount=media["size"],
                         )
                     elif media["type"] == MediaType.FILE.value:
                         new_post.media_pool.add_file(
                             _id=media["id"],
-                            post_id=new_post.id,
+                            post_id=resp["id"],
                             url=media["url"] + signed_query,
                             size_amount=media["size"],
                             title=media["title"]

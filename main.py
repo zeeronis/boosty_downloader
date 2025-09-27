@@ -98,6 +98,7 @@ async def main():
                         audio_start_offset = rt_audio_offset
         await fetch_and_save_media(
             creator_name=parsed_creator_name,
+            cache_path=cache_path,
             use_cookie=use_cookie_in,
             base_path=base_path,
             sync_data=sync_data,

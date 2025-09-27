@@ -22,6 +22,7 @@ async def _fetch_media(
         creator_name: str,
         use_cookie: bool,
         base_path: Path,
+        cache_path: Path,
         sync_data: Optional[SyncData] = None,
         start_offset: Optional[str] = None,
 ):
@@ -56,6 +57,7 @@ async def _fetch_media(
         downloader = Downloader(
             media_pool=media_pool,
             base_path=base_path,
+            cache_path=cache_path,
             max_parallel_downloads=conf.max_download_parallel,
             save_meta=conf.save_metadata
         )
@@ -83,6 +85,7 @@ async def fetch_and_save_media(
         creator_name: str,
         use_cookie: bool,
         base_path: Path,
+        cache_path: Path,
         sync_data: Optional[SyncData] = None,
         image_start_offset: Optional[str] = None,
         audio_start_offset: Optional[str] = None,
@@ -97,6 +100,7 @@ async def fetch_and_save_media(
                 creator_name=creator_name,
                 use_cookie=use_cookie,
                 base_path=base_path,
+                cache_path=cache_path,
                 sync_data=sync_data,
                 start_offset=image_start_offset,
             )
@@ -110,6 +114,7 @@ async def fetch_and_save_media(
                 creator_name=creator_name,
                 use_cookie=use_cookie,
                 base_path=base_path,
+                cache_path=cache_path,
                 sync_data=sync_data,
                 start_offset=video_start_offset,
             )
@@ -121,6 +126,7 @@ async def fetch_and_save_media(
                 creator_name=creator_name,
                 use_cookie=use_cookie,
                 base_path=base_path,
+                cache_path=cache_path,
                 sync_data=sync_data,
                 start_offset=audio_start_offset,
             )
@@ -204,6 +210,7 @@ async def fetch_and_save_posts(
             downloader = Downloader(
                 media_pool=post.media_pool,
                 base_path=post_path,
+                cache_path=cache_path,
                 max_parallel_downloads=conf.max_download_parallel,
                 save_meta=conf.save_metadata
             )
@@ -304,6 +311,7 @@ async def fetch_and_save_lonely_post(
         downloader = Downloader(
             media_pool=post.media_pool,
             base_path=post_path,
+            cache_path=cache_path,
             max_parallel_downloads=conf.max_download_parallel,
             save_meta=conf.save_metadata
         )

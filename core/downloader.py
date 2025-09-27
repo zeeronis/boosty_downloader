@@ -1,11 +1,11 @@
 import asyncio
-import os
 from pathlib import Path
 from typing import Literal, Any, Optional, Awaitable
 
 from boosty.api import download_file
 from boosty.wrappers.media_pool import MediaPool
 from core.defs import ContentType
+from core.download_state import DownloadState
 from core.logger import logger
 from core.meta import write_video_metadata
 from core.utils import create_dir_if_not_exists
@@ -17,24 +17,23 @@ class Downloader:
             self,
             media_pool: MediaPool,
             base_path: Path,
+            cache_path: Path,
             max_parallel_downloads: int = 10,
             save_meta: bool = False,
     ):
         self.media_pool = media_pool
         self.base_path = base_path
+        self.cache_path = cache_path
         self._max_parallel_downloads = max_parallel_downloads
         self._save_meta = save_meta
         self._semaphore = asyncio.Semaphore(max_parallel_downloads)
 
-    async def _download_file_if_not_exists(
+    async def _download_file(
             self,
             file_url: str,
             path: Path,
             meta_writer: Optional[Awaitable] = None
     ) -> bool:
-        if os.path.isfile(path):
-            logger.debug(f"file already exists \"{path.name}\"")
-            return False
         logger.debug(f"call download_file func for \"{path.name}\"")
         result = await download_file(file_url, path)
         if self._save_meta and result and meta_writer:
@@ -75,14 +74,23 @@ class Downloader:
                 return
 
         async with self._semaphore:
+            size_before = path_file.stat().st_size if path_file.is_file() else 0
+            download_state = DownloadState(self.cache_path / f"{path_file.name}.dstate")
+            await download_state.create(url, path_file)
             try:
-                if await self._download_file_if_not_exists(url, path_file, meta_writer):
-                    downloaded()
+                if await self._download_file(url, path_file, meta_writer):
+                    size_after = path_file.stat().st_size if path_file.is_file() else 0
+                    if size_after > size_before:
+                        downloaded()
+                    else:
+                        passed()
                 else:
                     passed()
             except Exception as e:
                 logger.warning(f"err download {url}", exc_info=e)
                 error()
+            finally:
+                await download_state.remove()
 
     async def download_by_content_type(self, content_type: ContentType):
         match content_type:

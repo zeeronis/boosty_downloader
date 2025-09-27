@@ -117,49 +117,83 @@ async def download_file(url: str, path: Path) -> bool:
     try:
         file_name = path.name
         async with ClientSession() as session:
+            initial_bytes = 0
+            if path.is_file():
+                initial_bytes = path.stat().st_size
+
             headers = copy(DEFAULT_HEADERS)
             headers.update(DOWNLOAD_HEADERS)
+            if initial_bytes > 0:
+                headers["Range"] = f"bytes={initial_bytes}-"
+                logger.info(f"Resuming download for \"{file_name}\" from byte {initial_bytes}")
+
             for i in range(3):
                 logger.info(f"preparing download \"{file_name}\"")
                 logger.debug(f"url: {url}")
-                response = await session.get(
-                    url,
-                    headers=headers,
-                    allow_redirects=True,
-                    timeout=conf.download_timeout
-                )
 
-                if response.status == 200:
-                    length = response.content_length
-                    async with aiofiles.open(path, "wb") as file:
-                        try:
-                            logger.info(f"start downloading \"{file_name}\". Remaining size: {round(length / 1024 / 1024, 2)} Mb")
-                            chunk_size = conf.download_chunk_size
-                            downloaded_bytes = 0
-                            last_log = time.monotonic()
-                            start_time = last_log
-                            #logger.info(f"downloading file... chunk size={chunk_size}")
-                            async for content in response.content.iter_chunked(chunk_size):
-                                if time.monotonic() - last_log > 30.0:
-                                    downloaded = downloaded_bytes if downloaded_bytes > 0 else 1
-                                    download_percent = int(downloaded / length * 100)
-                                    last_log = time.monotonic()
-                                    elapsed = last_log - start_time
-                                    total_time = round(elapsed * (length / downloaded), 2)
-                                    estimated = total_time - elapsed
+                try:
+                    response = await session.get(
+                        url,
+                        headers=headers,
+                        allow_redirects=True,
+                        timeout=conf.download_timeout
+                    )
+
+                    file_mode = "wb"
+                    total_length = 0
+
+                    if response.status == 206:  # Partial Content
+                        logger.info(f"Server supports resume for \"{file_name}\". Continuing download.")
+                        file_mode = "ab"
+                        total_length = initial_bytes + (response.content_length or 0)
+                    elif response.status == 200:  # OK
+                        if initial_bytes > 0:
+                            logger.warning(f"Server does not support resume for \"{file_name}\". Restarting download.")
+                            initial_bytes = 0
+                        file_mode = "wb"
+                        total_length = response.content_length or 0
+                    elif response.status == 416:  # Range Not Satisfiable
+                        logger.info(f"File \"{file_name}\" is already fully downloaded.")
+                        return True
+                    else:
+                        logger.warning(f"non-2xx status code ({response.status}) for file {url}, try {i + 2}")
+                        await asyncio.sleep(0.5)
+                        continue
+
+                    async with aiofiles.open(path, file_mode) as file:
+                        remaining_size_mb = round((total_length - initial_bytes) / 1024 / 1024, 2) if total_length else 'Unknown'
+                        logger.info(f"start downloading \"{file_name}\". Remaining size: {remaining_size_mb} Mb")
+                        chunk_size = conf.download_chunk_size
+                        downloaded_bytes = initial_bytes
+                        last_log = time.monotonic()
+                        start_time = last_log
+
+                        async for content in response.content.iter_chunked(chunk_size):
+                            await file.write(content)
+                            downloaded_bytes += len(content)
+
+                            if time.monotonic() - last_log > 30.0:
+                                last_log = time.monotonic()
+                                elapsed = last_log - start_time
+                                download_percent = int(downloaded_bytes / total_length * 100) if total_length > 0 else 0
+
+                                session_bytes = downloaded_bytes - initial_bytes
+                                if elapsed > 0 and session_bytes > 0:
+                                    speed_bps = session_bytes / elapsed
+                                    remaining_bytes = total_length - downloaded_bytes
+                                    eta_seconds = remaining_bytes / speed_bps if speed_bps > 0 else 0
+                                    speed_mbps = speed_bps / 1024 / 1024
                                     logger.info(f"downloading \"{file_name}\" [{download_percent}%] "
-                                                f"(ela: {int(elapsed) // 60}m; eta: {int(estimated) // 60}m; {round(downloaded / elapsed / 1024 / 1024, 2)} Mb/s)")
-                                await file.write(content)  # noqa
-                                downloaded_bytes += len(content)  # noqa
-                        except Exception as e:
-                            logger.warning(f"failed to write file {path}: {e}, trying again")
-                            await asyncio.sleep(0.5)
-                            continue
-                    return True
-                else:
-                    lg = f"non-200 status code ({response.status} for file {url}, try again"
-                    logger.warning(lg)
+                                                f"(ela: {int(elapsed) // 60}m; eta: {int(eta_seconds) // 60}m; {round(speed_mbps, 2)} Mb/s)")
+                                else:
+                                    logger.info(f"downloading \"{file_name}\" [{download_percent}%] ...")
+                    return True # Success
+                except Exception as e:
+                    logger.warning(f"failed to download or write file {path}: {e}, trying again")
                     await asyncio.sleep(0.5)
+                    continue
+
+            # after loop
             logger.error(f"actually failed download file {url}")
             raise Exception(f"actually failed download file {url}")
 

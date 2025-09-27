@@ -33,12 +33,12 @@ class Downloader:
             meta_writer: Optional[Awaitable] = None
     ) -> bool:
         if os.path.isfile(path):
-            logger.debug(f"pass saving file {path}: already exists")
+            logger.debug(f"file already exists \"{path.name}\"")
             return False
-        logger.info(f"will save file: {path}")
+        logger.debug(f"call download_file func for \"{path.name}\"")
         result = await download_file(file_url, path)
         if self._save_meta and result and meta_writer:
-            logger.info(f"writing metadata to file {path}")
+            logger.info(f"writing metadata to file \"{path.name}\"")
             await meta_writer
         return result
 
@@ -112,8 +112,13 @@ class Downloader:
         create_dir_if_not_exists(video_path)
         videos = self.media_pool.get_videos()
         for video in videos:
-            path = video_path / (video["id"] + ".mp4")
-            tasks.append(self._get_file_and_raise_stat(video["url"], path, "v", video.get("meta")))
+            meta = video.get("meta")
+            if meta and "title" in meta:
+                post_name = meta.get("title")
+            else:
+                post_name = video["id"]
+            path = video_path / (post_name + ".mp4")
+            tasks.append(self._get_file_and_raise_stat(video["url"], path, "v", meta))
         await asyncio.gather(*tasks)
 
     async def download_audios(self):

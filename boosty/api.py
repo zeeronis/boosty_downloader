@@ -115,11 +115,13 @@ async def download_file(url: str, path: Path) -> bool:
         logger.warning(f"Empty URL for {path} file, skip")
         raise Exception("Empty url")
     try:
+        file_name = path.name
         async with ClientSession() as session:
             headers = copy(DEFAULT_HEADERS)
             headers.update(DOWNLOAD_HEADERS)
             for i in range(3):
-                logger.info(f"preparing download {url}")
+                logger.info(f"preparing download \"{file_name}\"")
+                logger.debug(f"url: {url}")
                 response = await session.get(
                     url,
                     headers=headers,
@@ -131,13 +133,12 @@ async def download_file(url: str, path: Path) -> bool:
                     length = response.content_length
                     async with aiofiles.open(path, "wb") as file:
                         try:
-                            logger.info(f"saving file {path}")
-                            logger.info(f"file size: {round(length / 1024 / 1024, 2)} (Mb)")
+                            logger.info(f"start downloading \"{file_name}\". Remaining size: {round(length / 1024 / 1024, 2)} Mb")
                             chunk_size = conf.download_chunk_size
                             downloaded_bytes = 0
                             last_log = time.monotonic()
                             start_time = last_log
-                            logger.info(f"downloading file... chunk size={chunk_size}")
+                            #logger.info(f"downloading file... chunk size={chunk_size}")
                             async for content in response.content.iter_chunked(chunk_size):
                                 if time.monotonic() - last_log > 30.0:
                                     downloaded = downloaded_bytes if downloaded_bytes > 0 else 1
@@ -146,8 +147,8 @@ async def download_file(url: str, path: Path) -> bool:
                                     elapsed = last_log - start_time
                                     total_time = round(elapsed * (length / downloaded), 2)
                                     estimated = total_time - elapsed
-                                    logger.info(f"still downloading file... {download_percent}% "
-                                                f"(ela: {int(elapsed) // 60} min; eta: {int(estimated) // 60} min.), avg speed: {round(downloaded / elapsed / 1024 / 1024, 2)} Mb/s")
+                                    logger.info(f"downloading \"{file_name}\" [{download_percent}%] "
+                                                f"(ela: {int(elapsed) // 60}m; eta: {int(estimated) // 60}m; {round(downloaded / elapsed / 1024 / 1024, 2)} Mb/s)")
                                 await file.write(content)  # noqa
                                 downloaded_bytes += len(content)  # noqa
                         except Exception as e:

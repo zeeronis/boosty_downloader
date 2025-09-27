@@ -31,6 +31,8 @@ class Config:
 
     storage_type: Literal["post", "media"]
     desired_post_id: Optional[str]
+    creator_name: Optional[str]
+    skip_proceed_ask: bool
 
     save_logs_to_file: bool
     post_text_in_markdown: bool
@@ -88,7 +90,9 @@ class Config:
         self.need_load_video = True
         self.need_load_audio = True
         self.need_load_files = True
+        self.creator_name = content_conf.get("creator_name")
         self.storage_type = content_conf.get("storage_type")
+        self.skip_proceed_ask = bool(content_conf.get("skip_proceed_ask", False))
         self.post_text_in_markdown = bool(content_conf.get("post_text_in_markdown", True))
         self.save_metadata = bool(content_conf.get("save_metadata", True))
         self.save_logs_to_file = bool(logging_conf.get("enable_file_logging", False))

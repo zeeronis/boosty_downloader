@@ -22,7 +22,10 @@ except Exception as e:
 
 
 async def main():
-    raw_creator_name = input("Enter creator boosty link or user name > ")
+    if conf.creator_name is None:
+        raw_creator_name = input("Enter creator boosty link or user name > ")
+    else:
+        raw_creator_name = conf.creator_name
     parsed_creator_name = parse_creator_name(raw_creator_name)
     if parsed_creator_name.replace(" ", "") == "":
         logger.critical("Empty creator name, exit")
@@ -45,7 +48,7 @@ async def main():
         need_load_files=conf.need_load_files,
         storage_type=conf.storage_type,
     )
-    if not parse_bool(input("Proceed? (y/n) > ")):
+    if not conf.skip_proceed_ask and not parse_bool(input("Proceed? (y/n) > ")):
         raise SyncCancelledExc
 
     if not os.path.isdir(conf.sync_dir):

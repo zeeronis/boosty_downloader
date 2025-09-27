@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +9,24 @@ import aiofiles
 from core.defs import AsciiCommands
 from core.logger import logger
 
+def enable_windows_ansi_support():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+            
+            mode = wintypes.DWORD()
+            kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            
+            mode.value |= 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            kernel32.SetConsoleMode(handle, mode)
+            
+            logger.debug("ANSI escape codes support enabled for Windows")
+        except Exception as e:
+            logger.warning(f"Failed to enable ANSI support: {e}")
 
 def create_dir_if_not_exists(path: Path):
     if not os.path.isdir(path):

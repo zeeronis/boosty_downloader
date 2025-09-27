@@ -12,7 +12,7 @@ try:
     from core.config import conf
     from core.exceptions import SyncCancelledExc, ConfigMalformedExc
     from core.logger import logger
-    from core.utils import parse_creator_name, parse_bool, print_summary, create_dir_if_not_exists, print_colorized
+    from core.utils import parse_creator_name, parse_bool, print_summary, create_dir_if_not_exists, print_colorized, enable_windows_ansi_support
     from core.launchers import fetch_and_save_media, fetch_and_save_posts, fetch_and_save_lonely_post
     from core.stat_tracker import stat_tracker
 except Exception as e:
@@ -22,6 +22,8 @@ except Exception as e:
 
 
 async def main():
+    enable_windows_ansi_support()
+
     if conf.creator_name is None:
         raw_creator_name = input("Enter creator boosty link or user name > ")
     else:

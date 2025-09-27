@@ -147,7 +147,7 @@ async def download_file(url: str, path: Path) -> bool:
                                     total_time = round(elapsed * (length / downloaded), 2)
                                     estimated = total_time - elapsed
                                     logger.info(f"still downloading file... {download_percent}% "
-                                                f"(ela: {int(elapsed) // 60} min; eta: {int(estimated) // 60} min.)")
+                                                f"(ela: {int(elapsed) // 60} min; eta: {int(estimated) // 60} min.), avg speed: {round(downloaded / elapsed / 1024 / 1024, 2)} Mb/s")
                                 await file.write(content)  # noqa
                                 downloaded_bytes += len(content)  # noqa
                         except Exception as e:

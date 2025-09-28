@@ -6,6 +6,7 @@ from typing import Optional, Any
 import aiofiles
 from aiohttp import ClientSession
 from copy import copy
+from tqdm.asyncio import tqdm
 
 from boosty.defs import MediaType
 from boosty.wrappers.post import Post
@@ -130,12 +131,9 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
             headers.update(DOWNLOAD_HEADERS)
             if initial_bytes > 0:
                 headers["Range"] = f"bytes={initial_bytes}-"
-                logger.info(f"Resuming download for \"{file_name}\" from byte {initial_bytes}")
 
             for i in range(3):
-                logger.info(f"preparing download \"{file_name}\"")
                 logger.debug(f"url: {url}")
-
                 try:
                     response = await session.get(
                         url,
@@ -148,7 +146,6 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                     total_length = 0
 
                     if response.status == 206:  # Partial Content
-                        logger.info(f"Server supports resume for \"{file_name}\". Continuing download.")
                         file_mode = "ab"
                         content_range = response.headers.get("Content-Range")
                         if content_range:
@@ -166,7 +163,6 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                         file_mode = "wb"
                         total_length = response.content_length or 0
                     elif response.status == 416:  # Range Not Satisfiable
-                        logger.info(f"File \"{file_name}\" is already fully downloaded.")
                         return True, initial_bytes
                     else:
                         logger.warning(f"non-2xx status code ({response.status}) for file {url}, try {i + 2}")
@@ -174,32 +170,18 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                         continue
 
                     async with aiofiles.open(path, file_mode) as file:
-                        remaining_size_mb = round((total_length - initial_bytes) / 1024 / 1024, 2) if total_length else 'Unknown'
-                        logger.info(f"start downloading \"{file_name}\". Remaining size: {remaining_size_mb} Mb")
-                        chunk_size = conf.download_chunk_size
-                        downloaded_bytes = initial_bytes
-                        last_log = time.monotonic()
-                        start_time = last_log
-
-                        async for content in response.content.iter_chunked(chunk_size):
-                            await file.write(content)
-                            downloaded_bytes += len(content)
-
-                            if time.monotonic() - last_log > 30.0:
-                                last_log = time.monotonic()
-                                elapsed = last_log - start_time
-                                download_percent = int(downloaded_bytes / total_length * 100) if total_length > 0 else 0
-
-                                session_bytes = downloaded_bytes - initial_bytes
-                                if elapsed > 0 and session_bytes > 0:
-                                    speed_bps = session_bytes / elapsed
-                                    remaining_bytes = total_length - downloaded_bytes
-                                    eta_seconds = remaining_bytes / speed_bps if speed_bps > 0 else 0
-                                    speed_mbps = speed_bps / 1024 / 1024
-                                    logger.info(f"downloading \"{file_name}\" [{download_percent}%] "
-                                                f"(ela: {int(elapsed) // 60}m; eta: {int(eta_seconds) // 60}m; {round(speed_mbps, 2)} Mb/s)")
-                                else:
-                                    logger.info(f"downloading \"{file_name}\" [{download_percent}%] ...")
+                        with tqdm(
+                                total=total_length,
+                                desc=file_name,
+                                initial=initial_bytes,
+                                unit='B',
+                                unit_scale=True,
+                                unit_divisor=1024,
+                        ) as pbar:
+                            chunk_size = conf.download_chunk_size
+                            async for content in response.content.iter_chunked(chunk_size):
+                                await file.write(content)
+                                pbar.update(len(content))
                     return True, total_length
                 except Exception as e:
                     logger.warning(f"failed to download or write file {path}: {e}, trying again")

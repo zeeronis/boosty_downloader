@@ -18,6 +18,7 @@ from core.defs import VIDEO_QUALITY, ContentType
 from core.logger import logger
 from core.meta import parse_metadata
 from core.stat_tracker import stat_tracker
+from core.utils import get_terminal_width
 
 
 async def get_media_list(
@@ -46,7 +47,7 @@ async def get_media_list(
             send_headers["Cookie"] = conf.cookie
             send_headers["Authorization"] = conf.authorization
         url = BOOSTY_API_BASE_URL + f"/v1/blog/{creator_name}/media_album/"
-        logger.info("GET " + url + f" offset={offset} media_type={media_type}")
+        logger.debug("GET " + url + f" offset={offset} media_type={media_type}")
         resp = await session.get(
             url,
             params=params,
@@ -170,13 +171,22 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                         continue
 
                     async with aiofiles.open(path, file_mode) as file:
+                        pb_size = get_terminal_width() - 1
+                        max_file_name_length = 40
+                        if len(file_name) > max_file_name_length:
+                            file_name_formatted = f"\033[92m...{file_name[-(max_file_name_length-3):]}\033[0m"
+                        else:
+                            pb_size -= max_file_name_length - len(file_name)
+                            file_name_formatted = f"\033[92m{file_name}\033[0m"
                         with tqdm(
-                                total=total_length,
-                                desc=file_name,
-                                initial=initial_bytes,
-                                unit='B',
-                                unit_scale=True,
-                                unit_divisor=1024,
+                                bar_format = "{percentage:3.0f}% |{bar}{r_bar} {desc}",
+                                desc = file_name_formatted,
+                                ncols = pb_size,
+                                initial = initial_bytes,
+                                total = total_length,
+                                unit = 'B',
+                                unit_scale = True,
+                                unit_divisor = 1024,
                         ) as pbar:
                             chunk_size = conf.download_chunk_size
                             async for content in response.content.iter_chunked(chunk_size):

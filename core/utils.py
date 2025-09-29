@@ -28,6 +28,14 @@ def enable_windows_ansi_support():
         except Exception as e:
             logger.warning(f"Failed to enable ANSI support: {e}")
 
+def get_terminal_width() -> int:
+    try:
+        size = os.get_terminal_size()
+        return size.columns
+    except Exception as e:
+        logger.warning(f"Failed to get terminal width: {e}")
+        return 80
+
 def create_dir_if_not_exists(path: Path):
     if not os.path.isdir(path):
         logger.info(f"create directory: {path}")

@@ -171,13 +171,14 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                         continue
 
                     async with aiofiles.open(path, file_mode) as file:
-                        pb_size = get_terminal_width() - 1
+                        pb_size = get_terminal_width()
                         max_file_name_length = 40
                         if len(file_name) > max_file_name_length:
-                            file_name_formatted = f"\033[92m...{file_name[-(max_file_name_length-3):]}\033[0m"
+                            file_name_formatted = f"\033[92m...{file_name[-(max_file_name_length-4):]}\033[0m"
+                            file_name_formatted += ' ' * 1
                         else:
-                            pb_size -= max_file_name_length - len(file_name)
                             file_name_formatted = f"\033[92m{file_name}\033[0m"
+                            file_name_formatted += ' ' * (max_file_name_length - len(file_name))
                         with tqdm(
                                 bar_format = "{percentage:3.0f}% |{bar}{r_bar} {desc}",
                                 desc = file_name_formatted,

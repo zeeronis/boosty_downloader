@@ -15,7 +15,6 @@ from boosty.wrappers.media_pool import MediaPool
 from boosty.defs import DEFAULT_LIMIT, DEFAULT_LIMIT_BY, BOOSTY_API_BASE_URL, DEFAULT_HEADERS, DOWNLOAD_HEADERS
 from core.defs import VIDEO_QUALITY, ContentType
 from core.logger import logger
-from core.meta import parse_metadata
 from core.stat_tracker import stat_tracker
 from core.utils import get_terminal_width
 
@@ -110,7 +109,7 @@ async def get_all_media_by_type(
                                         post_id=post_id,
                                         url=url["url"],
                                         size_amount=VIDEO_QUALITY[url["type"]],
-                                        meta=parse_metadata(post["post"], media),
+                                        meta={"title": post["post"].get("title")},
                                     )
             return extra["isLast"], extra["offset"]
     return True, None
@@ -145,6 +144,15 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                     file_mode = "wb"
                     total_length = 0
 
+                    content_length_str = response.headers.get("Content-Length")
+                    try:
+                        content_length = int(content_length_str) if content_length_str else 0
+                        if content_length < 0:
+                            content_length = 0
+                    except (ValueError, TypeError):
+                        logger.warning(f"Could not parse Content-Length header: {content_length_str}")
+                        content_length = 0
+
                     if response.status == 206:  # Partial Content
                         file_mode = "ab"
                         content_range = response.headers.get("Content-Range")
@@ -153,15 +161,15 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                                 total_length = int(content_range.split("/")[-1])
                             except (ValueError, IndexError):
                                 logger.warning(f"Could not parse Content-Range header: {content_range}")
-                                total_length = initial_bytes + (response.content_length or 0)
+                                total_length = initial_bytes + content_length
                         else:
-                            total_length = initial_bytes + (response.content_length or 0)
+                            total_length = initial_bytes + content_length
                     elif response.status == 200:  # OK
                         if initial_bytes > 0:
                             logger.warning(f"Server does not support resume for \"{file_name}\". Restarting download.")
                             initial_bytes = 0
                         file_mode = "wb"
-                        total_length = response.content_length or 0
+                        total_length = content_length
                     elif response.status == 416:  # Range Not Satisfiable
                         return True, initial_bytes
                     else:
@@ -194,6 +202,32 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                                 pbar.update(len(content))
                     return True, total_length
                 except Exception as e:
+                    if "Invalid character in Content-Length" in str(e):
+                        logger.warning(
+                            f"Corrupted download for {path.name} due to invalid Content-Length. "
+                            f"Truncating file and retrying."
+                        )
+                        try:
+                            current_size = path.stat().st_size
+                            truncate_size = 5 * 1024 * 1024  # 5 MB
+                            new_size = max(0, current_size - truncate_size)
+                            
+                            with open(path, 'r+b') as f:
+                                f.truncate(new_size)
+
+                            initial_bytes = new_size
+                            if initial_bytes > 0:
+                                headers["Range"] = f"bytes={initial_bytes}-"
+                            else:
+                                headers.pop("Range", None)
+
+                        except OSError as truncate_error:
+                            logger.error(f"Could not truncate corrupted file {path.name}: {truncate_error}")
+                            return False, 0
+                        
+                        await asyncio.sleep(0.5)
+                        continue
+
                     logger.warning(f"failed to download or write file {path}: {e}, trying again")
                     await asyncio.sleep(0.5)
                     continue
@@ -305,7 +339,7 @@ async def get_all_posts(
                                         post_id=post["id"],
                                         url=url["url"],
                                         size_amount=VIDEO_QUALITY[url["type"]],
-                                        meta=parse_metadata(post, media),
+                                        meta={"title": post.get("title")},
                                     )
                         elif media["type"] == MediaType.IMAGE.value:
                             new_post.media_pool.add_image(
@@ -407,7 +441,7 @@ async def get_post_by_id(
                                     post_id=resp["id"],
                                     url=url["url"],
                                     size_amount=VIDEO_QUALITY[url["type"]],
-                                    meta=parse_metadata(resp, media),
+                                    meta={"title": resp.get("title")},
                                 )
                     elif media["type"] == MediaType.IMAGE.value:
                         new_post.media_pool.add_image(

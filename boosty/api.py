@@ -1,5 +1,4 @@
 import asyncio
-import time
 from pathlib import Path
 from typing import Optional, Any
 
@@ -68,7 +67,7 @@ async def get_all_media_by_type(
     offset: Optional[str] = None
 ) -> tuple[Any, Any]:
     load_posts_chunk_count = 10
-    logger.info(f"get next {load_posts_chunk_count} media posts by type \"{content_type.value}\" for \"{creator_name}\". Offset: {offset}")
+    logger.debug(f"get next {load_posts_chunk_count} media posts by type \"{content_type.value}\" for \"{creator_name}\". Offset: {offset}")
     async with ClientSession() as session:
         for i in range(load_posts_chunk_count):
             resp = await get_media_list(
@@ -275,7 +274,7 @@ async def get_all_posts(
     use_cookie: bool,
     offset: Optional[str] = None,
 ):
-    logger.info(f"get posts for {creator_name}")
+    logger.debug(f"get posts for {creator_name}")
     async with ClientSession() as session:
         for i in range(10):
             resp = await get_post_list(
@@ -358,7 +357,7 @@ async def fetch_post_by_id(
             send_headers["Cookie"] = conf.cookie
             send_headers["Authorization"] = conf.authorization
         url = BOOSTY_API_BASE_URL + f"/v1/blog/{creator_name}/post/{post_id}"
-        logger.info("GET " + url)
+        logger.debug("GET " + url)
         resp = await session.get(
             url,
             headers=send_headers
@@ -379,7 +378,7 @@ async def get_post_by_id(
     use_cookie: bool,
     offset: Optional[str] = None,
 ):
-    logger.info(f"get posts for {creator_name}")
+    logger.debug(f"get posts for {creator_name}")
     async with ClientSession() as session:
         for i in range(10):
             resp = await fetch_post_by_id(
@@ -443,3 +442,21 @@ async def get_post_by_id(
                 post_pool.add_post(new_post, offset)
             post_pool.close()
             return
+
+# TODO: check media id
+async def get_new_media_url(
+    creator_name: str,
+    post_id: str,
+    media_id: str,
+    use_cookie: bool,
+) -> str:
+    post_pool = PostPool()
+    await get_post_by_id(creator_name, post_id, post_pool, use_cookie)
+    post = post_pool.get_post(post_id)
+    if not post:
+        return None
+    media = post.media_pool.get_first()
+    if not media or not media.get("url"):
+        return None
+    return media["url"]
+    

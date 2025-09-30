@@ -16,6 +16,31 @@ from core.post_mapping.utils import ensure_post_database_exists, validate_window
 from core.sync_data import SyncData
 from core.utils import create_dir_if_not_exists, create_text_document, parse_offset_time
 
+async def _download_pack(
+        creator_name: str,
+        use_cookie: bool,
+        media_type: ContentType,
+        media_pool: MediaPool, 
+        base_path: Path, 
+        cache_path: Path, 
+        max_parallel_downloads: int,
+        save_meta: bool,
+        sync_data: Optional[SyncData] = None, 
+        offset: Optional[str] = None
+):
+    downloader = Downloader(
+        creator_name=creator_name,
+        use_cookie=use_cookie,
+        media_pool=media_pool,
+        base_path=base_path,
+        cache_path=cache_path,
+        max_parallel_downloads=max_parallel_downloads,
+        save_meta=save_meta
+    )
+    await downloader.download_by_content_type(media_type)
+    if sync_data and offset:
+        await sync_data.set_runtime_media_offset(media_type, offset)
+        await sync_data.save()
 
 async def _fetch_media(
         media_type: ContentType,
@@ -26,17 +51,22 @@ async def _fetch_media(
         sync_data: Optional[SyncData] = None,
         start_offset: Optional[str] = None,
 ):
-    logger.debug(f"Start scanning media with start offset = {start_offset}")
+    logger.info(f"Start scanning media with start offset = {start_offset}")
     offset = start_offset
+    is_last = False
     eot = None
     fot = None
-    is_last = False
     if sync_data:
         last_media_offset = await sync_data.get_last_media_offset(media_type)
         if last_media_offset:
             eot = int(last_media_offset)
-    while not is_last:
+    
+    if conf.scan_all_posts_first:
         media_pool = MediaPool()
+    while not is_last:
+        if not conf.scan_all_posts_first:
+            media_pool = MediaPool()
+        # get media pack
         is_last, got_offset = await get_all_media_by_type(
             content_type=media_type,
             creator_name=creator_name,
@@ -44,31 +74,47 @@ async def _fetch_media(
             use_cookie=use_cookie,
             offset=offset,
         )
+        # check is last
         parsed_offset = parse_offset_time(got_offset)
         if fot is None and parsed_offset:
             fot = parsed_offset
         if eot and parsed_offset:
             if parsed_offset <= eot:
                 logger.debug(f"Stop scanning media due to next api offset"
-                             f" <= last saved offset: {parsed_offset} <= {eot}")
+                            f" <= last saved offset: {parsed_offset} <= {eot}")
                 is_last = True
-        await asyncio.sleep(0.3)
+        # download media pack
+        if not conf.scan_all_posts_first:
+            await _download_pack(
+                creator_name=creator_name,
+                use_cookie=use_cookie,
+                media_type=media_type,
+                media_pool=media_pool,
+                base_path=base_path,
+                cache_path=cache_path,
+                max_parallel_downloads=conf.max_download_parallel,
+                save_meta=conf.save_metadata,
+                sync_data=sync_data,
+                offset=offset,
+            )
+        else:
+            media_pool.print_files_count()
+        offset = got_offset
+        await asyncio.sleep(0.4)
 
-        downloader = Downloader(
+    if conf.scan_all_posts_first:
+        await _download_pack(
+            creator_name=creator_name,
+            use_cookie=use_cookie,
+            media_type=media_type,
             media_pool=media_pool,
             base_path=base_path,
             cache_path=cache_path,
             max_parallel_downloads=conf.max_download_parallel,
-            save_meta=conf.save_metadata
+            save_meta=conf.save_metadata,
+            sync_data=sync_data,
+            offset=offset,
         )
-
-        await downloader.download_by_content_type(media_type)
-
-        if sync_data and offset:
-            await sync_data.set_runtime_media_offset(media_type, offset)
-            await sync_data.save()
-
-        offset = got_offset
 
     if sync_data:
         await sync_data.set_runtime_media_offset(media_type, None)
@@ -309,6 +355,8 @@ async def fetch_and_save_lonely_post(
         )
 
         downloader = Downloader(
+            creator_name=creator_name,
+            use_cookie=use_cookie,
             media_pool=post.media_pool,
             base_path=post_path,
             cache_path=cache_path,

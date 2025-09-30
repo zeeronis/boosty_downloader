@@ -13,7 +13,9 @@ class Colors:
 
 class ColoredFormatter(logging.Formatter):
     def format(self, record):
-        if record.levelno == logging.ERROR:
+        if record.levelno == logging.CRITICAL:
+            color = Colors.ERROR
+        elif record.levelno == logging.ERROR:
             color = Colors.ERROR
         elif record.levelno == logging.WARNING:
             color = Colors.WARNING

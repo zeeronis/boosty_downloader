@@ -1,9 +1,12 @@
 import asyncio
 from pathlib import Path
 from typing import Literal, Any, Optional, Awaitable
+from urllib.parse import urlparse, parse_qs
+from datetime import datetime, timezone, timedelta
 
-from boosty.api import download_file
+from boosty.api import download_file, get_post_by_id, get_new_media_url
 from boosty.wrappers.media_pool import MediaPool
+from boosty.wrappers.post_pool import PostPool
 from core.completed_cache import CompletedCache
 from core.defs import ContentType
 from core.logger import logger
@@ -15,12 +18,16 @@ from core.stat_tracker import stat_tracker
 class Downloader:
     def __init__(
             self,
+            creator_name: str,
+            use_cookie: bool,
             media_pool: MediaPool,
             base_path: Path,
             cache_path: Path,
             max_parallel_downloads: int = 10,
             save_meta: bool = False,
     ):
+        self.creator_name = creator_name
+        self.use_cookie = use_cookie
         self.media_pool = media_pool
         self.base_path = base_path
         self.cache_path = cache_path
@@ -72,6 +79,7 @@ class Downloader:
         async with self._semaphore:
             size_before = path_file.stat().st_size if path_file.is_file() else 0
             try:
+                url = await self.refresh_url_if_expired(self.creator_name, self.use_cookie, post_id, file_id, url)
                 success, server_total_size = await self._download_file(url, path_file)
                 if not success:
                     error()
@@ -154,3 +162,44 @@ class Downloader:
             path = files_path / file["title"]
             tasks.append(self._get_file_and_raise_stat(file["url"], path, "f", file["id"], file["post_id"], file["size_amount"]))
         await asyncio.gather(*tasks)
+
+    async def refresh_url_if_expired(self, 
+            creator_name: str, 
+            use_cookie: bool, 
+            post_id: str, 
+            file_id: str, 
+            url: str,
+    ) -> str:
+        if url == "" or url is None:
+            return url
+        try:
+            parsed_url = urlparse(url)
+            query_params = parse_qs(parsed_url.query)
+            if 'expires' not in query_params:
+                logger.warning(f"No expires parameter found in \"{url}\" for file \"{file_id}\"")
+                return url
+            
+            expires_timestamp = int(query_params['expires'][0])
+            expires_datetime = datetime.fromtimestamp(expires_timestamp / 1000, tz=timezone.utc)
+            current_datetime = datetime.now(tz=timezone.utc)
+            logger.debug(f"URL expires at: {expires_datetime}, current time: {current_datetime}")
+            if current_datetime < expires_datetime - timedelta(minutes=15):
+                time_remaining = expires_datetime - current_datetime
+                logger.debug(f"URL is still valid for {time_remaining} for file \"{file_id}\"")
+                return url
+            
+            logger.warning(f"URL expired for file \"{file_id}\" from post \"{post_id}\". "
+                            f"Expired at: {expires_datetime}, current time: {current_datetime}.")
+            # refresh URL
+            refresh_attempts = 3
+            for i in range(refresh_attempts):
+                new_url = await get_new_media_url(creator_name, post_id, file_id, use_cookie)
+                if new_url:
+                    logger.info("Url successfully refreshed")
+                    return new_url
+            logger.warning(f"Could not refresh URL for file {file_id} from post {post_id}")
+            return url
+        except Exception as e:
+            logger.error(f"refresh url failed. file: {file_id}, post: {post_id}, error: {e}")
+        return url
+        

@@ -1,5 +1,7 @@
 from typing import Any, List, Dict
+from core.defs import AsciiCommands
 
+from core.logger import logger
 from core.config import conf
 
 
@@ -140,3 +142,25 @@ class MediaPool:
                 }
             )
         return res
+
+    def get_first(self) -> Dict | None:
+        images = self.get_images()
+        if images and len(images) > 0:
+            return images[0]
+        videos = self.get_videos()
+        if videos and len(videos) > 0:
+            return videos[0]
+        audios = self.get_audios()
+        if audios and len(audios) > 0:
+            return audios[0]
+        files = self.get_files()
+        if files and len(files) > 0:
+            return files[0]
+        return None
+
+    def print_files_count(self):
+        logger.info(f"scanning... "
+               f"images {AsciiCommands.COLORIZE_HIGHLIGHT.value}{len(self.__images)}{AsciiCommands.COLORIZE_DEFAULT.value}, "
+               f"videos {AsciiCommands.COLORIZE_HIGHLIGHT.value}{len(self.__videos)}{AsciiCommands.COLORIZE_DEFAULT.value}, "
+               f"audios {AsciiCommands.COLORIZE_HIGHLIGHT.value}{len(self.__audios)}{AsciiCommands.COLORIZE_DEFAULT.value}, "
+               f"files {AsciiCommands.COLORIZE_HIGHLIGHT.value}{len(self.__files)}{AsciiCommands.COLORIZE_DEFAULT.value}")

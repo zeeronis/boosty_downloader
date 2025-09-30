@@ -72,6 +72,16 @@ def parse_bool(raw_input: str) -> bool:
         case _:
             return False
 
+data_size_units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+def get_human_readable_size(bytes: int) -> str:
+    if bytes <= 0:
+        return f"{bytes}{data_size_units[0]}"
+    unit_index = 0
+    size = float(bytes)
+    while size >= 1024 and unit_index < len(data_size_units) - 1:
+        size /= 1024
+        unit_index += 1
+    return f"{size:.2f}{data_size_units[unit_index]}"
 
 def print_colorized(prefix: str, data: str, warn: bool = False, end="\n"):
     if prefix:

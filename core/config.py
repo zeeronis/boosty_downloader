@@ -25,6 +25,7 @@ class Config:
     need_load_audio: bool
     need_load_files: bool
     sync_offset_save: bool
+    scan_all_posts_first: bool
     enable_post_masquerade: bool
     max_video_file_size: int
     debug: bool
@@ -93,6 +94,7 @@ class Config:
         self.creator_name = content_conf.get("creator_name")
         self.storage_type = content_conf.get("storage_type")
         self.skip_proceed_ask = bool(content_conf.get("skip_proceed_ask", False))
+        self.scan_all_posts_first = bool(content_conf.get("scan_all_posts_first", False))
         self.post_text_in_markdown = bool(content_conf.get("post_text_in_markdown", True))
         self.save_metadata = bool(content_conf.get("save_metadata", True))
         self.save_logs_to_file = bool(logging_conf.get("enable_file_logging", False))

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 from pathlib import Path
 from typing import Optional, Any
@@ -203,6 +204,32 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                                 pbar.update(len(content))
                     return True, total_length
                 except Exception as e:
+                    if "Invalid character in Content-Length" in str(e):
+                        logger.warning(
+                            f"Corrupted download for {path.name} due to invalid Content-Length. "
+                            f"Truncating file and retrying."
+                        )
+                        try:
+                            current_size = path.stat().st_size
+                            truncate_size = 5 * 1024 * 1024  # 5 MB
+                            new_size = max(0, current_size - truncate_size)
+                            
+                            with open(path, 'r+b') as f:
+                                f.truncate(new_size)
+
+                            initial_bytes = new_size
+                            if initial_bytes > 0:
+                                headers["Range"] = f"bytes={initial_bytes}-"
+                            else:
+                                headers.pop("Range", None)
+
+                        except OSError as truncate_error:
+                            logger.error(f"Could not truncate corrupted file {path.name}: {truncate_error}")
+                            return False, 0
+                        
+                        await asyncio.sleep(0.5)
+                        continue
+
                     logger.warning(f"failed to download or write file {path}: {e}, trying again")
                     await asyncio.sleep(0.5)
                     continue

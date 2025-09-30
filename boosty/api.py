@@ -16,7 +16,6 @@ from boosty.wrappers.media_pool import MediaPool
 from boosty.defs import DEFAULT_LIMIT, DEFAULT_LIMIT_BY, BOOSTY_API_BASE_URL, DEFAULT_HEADERS, DOWNLOAD_HEADERS
 from core.defs import VIDEO_QUALITY, ContentType
 from core.logger import logger
-from core.meta import parse_metadata
 from core.stat_tracker import stat_tracker
 from core.utils import get_terminal_width
 
@@ -111,7 +110,7 @@ async def get_all_media_by_type(
                                         post_id=post_id,
                                         url=url["url"],
                                         size_amount=VIDEO_QUALITY[url["type"]],
-                                        meta=parse_metadata(post["post"], media),
+                                        meta={"title": post["post"].get("title")},
                                     )
             return extra["isLast"], extra["offset"]
     return True, None
@@ -146,6 +145,15 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                     file_mode = "wb"
                     total_length = 0
 
+                    content_length_str = response.headers.get("Content-Length")
+                    try:
+                        content_length = int(content_length_str) if content_length_str else 0
+                        if content_length < 0:
+                            content_length = 0
+                    except (ValueError, TypeError):
+                        logger.warning(f"Could not parse Content-Length header: {content_length_str}")
+                        content_length = 0
+
                     if response.status == 206:  # Partial Content
                         file_mode = "ab"
                         content_range = response.headers.get("Content-Range")
@@ -154,15 +162,15 @@ async def download_file(url: str, path: Path) -> tuple[bool, int]:
                                 total_length = int(content_range.split("/")[-1])
                             except (ValueError, IndexError):
                                 logger.warning(f"Could not parse Content-Range header: {content_range}")
-                                total_length = initial_bytes + (response.content_length or 0)
+                                total_length = initial_bytes + content_length
                         else:
-                            total_length = initial_bytes + (response.content_length or 0)
+                            total_length = initial_bytes + content_length
                     elif response.status == 200:  # OK
                         if initial_bytes > 0:
                             logger.warning(f"Server does not support resume for \"{file_name}\". Restarting download.")
                             initial_bytes = 0
                         file_mode = "wb"
-                        total_length = response.content_length or 0
+                        total_length = content_length
                     elif response.status == 416:  # Range Not Satisfiable
                         return True, initial_bytes
                     else:
@@ -306,7 +314,7 @@ async def get_all_posts(
                                         post_id=post["id"],
                                         url=url["url"],
                                         size_amount=VIDEO_QUALITY[url["type"]],
-                                        meta=parse_metadata(post, media),
+                                        meta={"title": post.get("title")},
                                     )
                         elif media["type"] == MediaType.IMAGE.value:
                             new_post.media_pool.add_image(
@@ -408,7 +416,7 @@ async def get_post_by_id(
                                     post_id=resp["id"],
                                     url=url["url"],
                                     size_amount=VIDEO_QUALITY[url["type"]],
-                                    meta=parse_metadata(resp, media),
+                                    meta={"title": resp.get("title")},
                                 )
                     elif media["type"] == MediaType.IMAGE.value:
                         new_post.media_pool.add_image(

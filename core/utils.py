@@ -42,6 +42,13 @@ def create_dir_if_not_exists(path: Path):
         os.mkdir(path)
 
 
+def sanitize_filename(filename: str) -> str:
+    """
+    Removes characters that are not allowed in Windows filenames.
+    """
+    return re.sub(r'[\\/*?:"<>|]', "", filename)
+
+
 async def create_text_document(path: Path, content: str, ext: str = "txt", name: str = "contents"):
     to_write = path / (name + "." + ext)
     async with aiofiles.open(to_write, "w", encoding="utf-8") as file:

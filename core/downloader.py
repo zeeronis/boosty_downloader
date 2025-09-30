@@ -7,8 +7,7 @@ from boosty.wrappers.media_pool import MediaPool
 from core.completed_cache import CompletedCache
 from core.defs import ContentType
 from core.logger import logger
-from core.meta import write_video_metadata
-from core.utils import create_dir_if_not_exists
+from core.utils import create_dir_if_not_exists, sanitize_filename
 from core.stat_tracker import stat_tracker
 
 
@@ -58,13 +57,13 @@ class Downloader:
 
         match _t:
             case "p":
-                passed, downloaded, error, meta_writer = stat_tracker.add_passed_photo, stat_tracker.add_downloaded_photo, stat_tracker.add_error_photo, None
+                passed, downloaded, error = stat_tracker.add_passed_photo, stat_tracker.add_downloaded_photo, stat_tracker.add_error_photo
             case "v":
-                passed, downloaded, error, meta_writer = stat_tracker.add_passed_video, stat_tracker.add_downloaded_video, stat_tracker.add_error_video, write_video_metadata
+                passed, downloaded, error = stat_tracker.add_passed_video, stat_tracker.add_downloaded_video, stat_tracker.add_error_video
             case "a":
-                passed, downloaded, error, meta_writer = stat_tracker.add_passed_audio, stat_tracker.add_downloaded_audio, stat_tracker.add_error_audio, None
+                passed, downloaded, error = stat_tracker.add_passed_audio, stat_tracker.add_downloaded_audio, stat_tracker.add_error_audio
             case "f":
-                passed, downloaded, error, meta_writer = stat_tracker.add_passed_file, stat_tracker.add_downloaded_file, stat_tracker.add_error_file, None
+                passed, downloaded, error = stat_tracker.add_passed_file, stat_tracker.add_downloaded_file, stat_tracker.add_error_file
             case _:
                 logger.warning(f"Unknown _t: {_t}")
                 return
@@ -81,9 +80,6 @@ class Downloader:
                 final_expected_size = expected_size if expected_size > 0 else server_total_size
 
                 if final_expected_size > 0 and size_after >= final_expected_size:
-                    if self._save_meta and meta_writer:
-                        await meta_writer(path_file, metadata)
-                    
                     if size_after > size_before:
                         downloaded()
                     else:
@@ -127,11 +123,11 @@ class Downloader:
         videos = self.media_pool.get_videos()
         for video in videos:
             meta = video.get("meta")
-            if meta and "title" in meta:
+            if meta and meta.get("title"):
                 post_name = meta.get("title")
             else:
                 post_name = video["id"]
-            path = video_path / (post_name + ".mp4")
+            path = video_path / (sanitize_filename(post_name) + ".mp4")
             tasks.append(self._get_file_and_raise_stat(video["url"], path, "v", video["id"], video["post_id"], metadata=meta))
         await asyncio.gather(*tasks)
 
@@ -151,6 +147,6 @@ class Downloader:
         create_dir_if_not_exists(files_path)
         files = self.media_pool.get_files()
         for file in files:
-            path = files_path / file["title"]
+            path = files_path / sanitize_filename(file["title"])
             tasks.append(self._get_file_and_raise_stat(file["url"], path, "f", file["id"], file["post_id"], file["size_amount"]))
         await asyncio.gather(*tasks)
